@@ -1,0 +1,67 @@
+id: feature
+name: 功能咨询
+
+description: |
+  用户咨询产品功能、使用方法、功能建议等咨询类问题。
+
+open_text_fields:
+  - id: use_scenario
+    label: 使用场景
+    description: 用户想用这个功能做什么
+    extraction_prompt: "用户描述的使用场景是什么？"
+
+  - id: expected_result
+    label: 期望结果
+    description: 用户希望达到什么效果
+    extraction_prompt: "用户期望的结果是什么？"
+
+enum_fields:
+  - id: feature_type
+    label: 功能类型
+    required: true
+    options:
+      - value: data_export
+        label: 📊 数据导出
+      - value: share
+        label: 🔗 分享功能
+      - value: search
+        label: 🔍 高级搜索
+      - value: api
+        label: 🔌 API接入
+      - value: permission
+        label: 🔐 权限管理
+      - value: other
+        label: ❓ 其他功能
+
+  - id: user_identity
+    label: 用户身份
+    required: true
+    options:
+      - value: personal
+        label: 👤 个人用户
+      - value: admin
+        label: 🏢 企业管理员
+      - value: developer
+        label: 💻 开发者
+      - value: operator
+        label: 📋 运营人员
+      - value: other
+        label: ❓ 其他身份
+
+  - id: urgency_level
+    label: 紧急程度
+    required: true
+    options:
+      - value: normal
+        label: 🟢 一般咨询
+      - value: work_affected
+        label: 🟡 影响工作
+      - value: urgent
+        label: 🔴 紧急故障
+      - value: critical
+        label: ⚫ 重大事故
+
+workflow:
+  max_info_rounds: 3
+  info_complete_action: route_to_solution
+  max_rounds_exceeded_action: route_to_human

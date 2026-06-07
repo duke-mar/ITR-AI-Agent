@@ -1,0 +1,50 @@
+id: technical
+name: 技术支持
+
+description: |
+  用户遇到产品使用问题、系统报错、功能异常等技术类咨询。
+
+open_text_fields:
+  - id: operation_steps
+    label: 操作步骤
+    description: 用户执行了哪些操作导致问题
+    extraction_prompt: "用户描述的操作步骤是什么？"
+
+  - id: error_message
+    label: 报错信息
+    description: 系统提示了什么错误
+    extraction_prompt: "报错信息或错误提示是什么？"
+
+enum_fields:
+  - id: issue_scope
+    label: 影响范围
+    required: true
+    options:
+      - value: only_me
+        label: 👤 仅我账号
+      - value: partial
+        label: 👥 部分用户
+      - value: all
+        label: 🌐 全部用户
+      - value: unknown
+        label: ❓ 不确定
+
+  - id: device_type
+    label: 设备类型
+    required: true
+    options:
+      - value: pc
+        label: 💻 PC电脑
+      - value: mobile_app
+        label: 📱 手机App
+      - value: tablet
+        label: 📲 平板
+      - value: web
+        label: 🌐 网页版
+      - value: other
+        label: ❓ 其他设备
+
+workflow:
+  max_info_rounds: 3
+  info_complete_action: route_to_solution
+  max_rounds_exceeded_action: route_to_human

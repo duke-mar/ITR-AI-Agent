@@ -1,0 +1,39 @@
+id: billing
+name: 计费问题
+
+description: |
+  用户咨询套餐费用、订单支付、退款、发票等计费相关问题。
+
+open_text_fields:
+  - id: refund_reason
+    label: 退款原因
+    description: 用户申请退款的原因
+    extraction_prompt: "用户申请退款的原因是什么？"
+
+enum_fields:
+  - id: plan_type
+    label: 套餐类型
+    required: true
+    options:
+      - value: basic
+        label: 🔰 基础版
+      - value: pro
+        label: ⭐ 专业版
+      - value: enterprise
+        label: 🏢 企业版
+      - value: trial
+        label: 🎁 试用版
+
+rule_fields:
+  - id: order_id
+    label: 订单号
+    required: true
+    type: regex
+    pattern: '\d{12,20}'
+    example: "2024010112345678"
+    error_message: "订单号格式不正确，应为12-20位数字，例如：2024010112345678"
+
+workflow:
+  max_info_rounds: 3
+  info_complete_action: route_to_solution
+  max_rounds_exceeded_action: route_to_human

@@ -1,0 +1,41 @@
+id: account
+name: 账号问题
+
+description: |
+  用户遇到账号登录、密码找回、权限设置、账号封禁等账号相关问题。
+
+open_text_fields:
+  - id: error_hint
+    label: 错误提示
+    description: 页面显示的错误提示信息
+    extraction_prompt: "页面上的错误提示是什么？"
+
+rule_fields:
+  - id: phone
+    label: 手机号
+    required: true
+    type: regex
+    pattern: '1[3-9]\d{9}'
+    example: "13800138000"
+    error_message: "手机号格式不正确，请输入11位手机号，例如：13800138000"
+
+  - id: email
+    label: 邮箱
+    required: true
+    type: regex
+    pattern: '[\w\.-]+@[\w\.-]+\.\w+'
+    example: "user@example.com"
+    error_message: "邮箱格式不正确，例如：user@example.com"
+
+  - id: id_card
+    label: 身份证号
+    required: true
+    type: regex
+    pattern: '\d{17}[\dXx]|\d{15}'
+    example: "110101199001011234"
+    error_message: "身份证号格式不正确，请输入15位或18位身份证号"
+
+workflow:
+  max_info_rounds: 3
+  info_complete_action: route_to_solution
+  max_rounds_exceeded_action: route_to_human
