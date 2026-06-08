@@ -9,10 +9,9 @@
 
 ---
 ## 预览
-![1](/public/1.png)
-![2](/public/2.png)
-![3](/public/3.png)
-![4](/public/4.png)
+![1](/public/1.png)![2](/public/2.png)
+![3](/public/3.png)![4](/public/4.png)
+
 ---
 
 ## 目录
