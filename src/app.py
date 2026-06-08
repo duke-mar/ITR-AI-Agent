@@ -23,6 +23,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from utils.rule_util import NumberForLifeVerify
 
 # 把项目根目录加入路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -410,16 +411,19 @@ async def _handle_rule_validation(
         return False  # 当前字段不是规则字段
 
     user_content = msg.get("content", "")
-    import re
-    match = re.search(field_config["pattern"], user_content)
+    # import re
+    # match = re.search(field_config["pattern"], user_content)
 
-    if match:
+    verify_result = varify_phone_email_id(user_content, current_field)
+
+    if verify_result:
         # 正则匹配成功，写入字段，重置失败计数，直接调用 Graph
         state["collected_info"] = state.get("collected_info", {})
-        state["collected_info"][current_field] = match.group(0)
+        # state["collected_info"][current_field] = match.group(0)
+        state["collected_info"][current_field] = user_content
         state["retry_count"] = 0
         manager.set_state(session_id, state)
-        logger.info(f"[{session_id}] 规则字段匹配成功: {current_field} = {match.group(0)}")
+        logger.info(f"[{session_id}] 规则字段匹配成功: {current_field} = {user_content}")
 
         # 直接调用 Graph 检查是否还有缺失字段（不复用 _handle_field_fill 避免重复 save）
         try:
@@ -540,9 +544,7 @@ def _looks_like_new_intent(text: str) -> bool:
     question_marks = ["?", "？", "怎么", "怎么办", "如何", "为什么", "请问", "怎样"]
     if any(q in text for q in question_marks):
         return True
-    # 输入较长（超过 15 字），不太可能是简单的字段值
-    if len(text) > 15:
-        return True
+  
     # 包含常见业务意图关键词
     intent_keywords = ["报错", "错误", "系统", "功能", "使用", "咨询", "问题", "帮助", "升级", "套餐", "账号", "密码", "登录", "注册", "忘记密码", "修改", "绑定", "解绑"]
     if any(kw in text for kw in intent_keywords):
@@ -591,6 +593,17 @@ async def _mark_info_complete_and_proceed(
             "type": "error",
             "content": f"系统处理出错，请稍后再试。错误：{str(e)}",
         })
+
+def varify_phone_email_id(text: str, verify_type: str) -> bool:
+    """验证用户输入的手机号、邮箱、身份证号是否有效"""
+    if verify_type == "phone":
+        return NumberForLifeVerify.is_phone_number(text)
+    elif verify_type == "email":
+        return NumberForLifeVerify.is_email(text)
+    elif verify_type == "id_card":
+        return NumberForLifeVerify.is_id_card(text)
+
+    return False
 
 
 async def _dispatch_message(
@@ -729,7 +742,9 @@ def _get_current_asking_field(state: Dict[str, Any]) -> Optional[str]:
         return interactive["field_id"]
 
     collected = state.get("collected_info", {})
+    logger.info(f"_get_current_asking_field 从 collected_info 中获取: {collected}")
     for field_id, value in collected.items():
+        logger.info(f"_get_current_asking_field 检查字段 field_id:{field_id}: value:{value}")
         if value is None:
             return field_id
     return None

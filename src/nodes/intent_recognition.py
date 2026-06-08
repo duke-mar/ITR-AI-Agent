@@ -109,6 +109,7 @@ class IntentRecognitionNode(INode):
 
         # 兜底：如果 LLM 判为 manual，但用户最近一次输入明显不是转人工
         # （如刚取消人工后输入了业务问题），避免受历史消息影响重复触发转人工
+        decrease_level_intent = intent
         if intent == "manual":
             messages = state.get("messages", [])
             last_user = ""
