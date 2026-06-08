@@ -8,6 +8,10 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
+## 预览
+![1](/public/1.png)
+![2](/public/2.png)
+---
 
 ## 目录
 
@@ -117,6 +121,115 @@ intent_recognition 执行
     └── 其他业务意图 ─────────→ solution_generation ──→ END
 ```
 
+---
+
+## 业务场景-待优化设计
+### 用户意图识别系统
+1. “双核”引擎
+同时“填槽”和“识别意图变更”，两个关键核心模块：
+（1）对话状态跟踪（DST）模块：这个模块是系统的短期记忆，负责记住“我们在哪了”。例如，它知道当前正在收集“手机号”这个信息，并知道已经问了第几次。
+（2）全局意图识别模块：这个模块是系统的“雷达”，它以高于当前任务的优先级，持续扫描用户的每一句话。它的职责是判断用户是不是想“切换话题”、“取消操作”或“转人工”。
+
+2. 优先级决策机制
+当用户输入时，系统会先走判断逻辑，而不是直接将其当作“手机号”来处理：
+（1）优先级1：处理高权限全局指令，用户消息首先会经过一个“快速通道”，识别是否存在强制跳转指令。如：
+转人工：用户一旦说“转人工”、“找真人客服”，系统应立即处理，而不是继续追问手机号。
+取消/退出：用户说“算了”、“不办了”，系统应礼貌结束当前流程，而不是追问信息。
+明确的新意图：用户说“我想查物流”，系统应立即跳出当前流程，响应用户新需求。
+
+（2）优先级2：判断是否与当前任务相关：如果没有高权限指令，系统会判断用户回答是否与当前任务有关。
+例如，机器人问“请输入您的手机号”，用户回答是“138****0000”。这明显是任务相关信息，只做格式校验，不判断意图变更。
+如果用户回答是“我的订单丢了怎么办？”，这个回答与“提供手机号”的任务相关性极低。此时，哪怕格式不对，系统也不会再提示“请输入11位手机号”，而是将其识别为新意图，进行跳转或兜底回答。
+
+（3）优先级3：常规槽位校验：只有当用户输入被判定为与当前任务相关（或未触发新意图）时，才进入常规的校验流程。如果格式错误，就友好地提示用户重新输入。
+
+示例实现逻辑：
+
+```code
+用户输入
+    ↓
+第一层：规则层（格式校验、关键词白名单/黑名单）
+    ↓
+第二层：大模型层（语义相似度、意图分类、相关性判断）
+    ↓
+第三层：决策层（基于置信度做阈值判断）
+```
+
+```python
+# 伪代码示例：在追问运单号的场景下的决策逻辑
+
+def on_user_message(user_input, current_state):
+    # 1. 最高优先级：执行全局意图识别
+    # 这里会调用一个独立的、经过训练的意图识别模型
+    global_intent = global_intent_classifier(user_input) 
+    
+    if global_intent == "TRANSFER_TO_HUMAN":
+        return transfer_to_human_agent()
+    elif global_intent == "CANCEL":
+        return say_goodbye_and_reset()
+    elif global_intent == "CHECK_REFUND_STATUS":
+        # 用户跳转到了新意图，中断当前流程，开始处理退款
+        return start_refund_workflow() 
+    
+    # 2. 如果用户没有触发跳转，再判断是否与当前任务（收集运单号）相关
+    # 计算用户输入与“运单号”这个语义槽位的匹配度
+    relevance_score = calculate_relevance(user_input, current_state.slot_name)
+    
+    if relevance_score < LOW_RELEVANCE_THRESHOLD:
+        # 用户说的是其他事情（如“再推荐个别的商品”），但又不是明确指令
+        # 此时跳出，并给出“全局回复”，将对话拉回原任务
+        return give_global_answer_and_restore_task(user_input)
+    
+    # 3. 最后，才进入当前任务的流程
+    if is_valid_tracking_number(user_input):
+        return continue_to_next_step()
+    else:
+        return ask_for_tracking_number_again()
+```
+
+追问与回答的相关性设计：
+方案一：大模型
+```code
+def get_relevance_by_llm(user_input, slot_name, slot_example):
+    prompt = f"""
+你是智能客服的决策模块。当前系统正在向用户追问：{slot_name}（例如：{slot_example}）
+
+用户最新回复："{user_input}"
+
+请判断用户回复是否与【提供{slot_name}】这个任务相关。
+只输出0-1之间的数字，不要有任何解释：
+- 0.9-1.0: 明显相关，用户在提供所问信息
+- 0.6-0.8: 可能相关，需要进一步确认  
+- 0.3-0.5: 不太相关，用户似乎换了话题
+- 0.0-0.2: 完全不相关，明确的新意图
+
+输出格式：{"relevance_score": 0.xx}
+"""
+    response = call_llm(prompt)
+    return response.relevance_score
+```
+
+方案二：关键词加权 + 规则兜底（无大模型时的降级方案）
+def compute_relevance_fallback(user_input, slot_keywords, slot_type):
+    score = 0.0
+    
+    # 1. 格式匹配加分（高权重）
+    if slot_type == "phone" and re.match(r'1[3-9]\d{9}', user_input):
+        score += 0.6
+    elif slot_type == "tracking_number" and re.match(r'[A-Z0-9]{10,}', user_input):
+        score += 0.6
+    
+    # 2. 关键词匹配加分（中权重）
+    for kw in slot_keywords:  # 如 ["手机", "号码", "电话"]
+        if kw in user_input:
+            score += 0.15
+    
+    # 3. 否定词减分
+    if any(word in user_input for word in ["不是", "不想", "算了", "取消"]):
+        score -= 0.3
+    
+    # 归一化到[0,1]
+    return min(1.0, max(0.0, score))
 ---
 
 ## 核心设计：字段三分法

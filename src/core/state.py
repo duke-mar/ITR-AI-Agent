@@ -130,4 +130,5 @@ def create_initial_state() -> ITRState:
         "last_node": None,
         "next_node": None,
         "info_complete": False,
+        "decrease_level_intent": None     # 降级意图，若大模型将判断为人工，但用户并非选人工时可以这里控制
     }

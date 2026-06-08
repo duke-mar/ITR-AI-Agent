@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>ITR 智能客服</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -33,14 +33,15 @@
             text-align: center;
         }
         .chat-header h1 { font-size: 18px; font-weight: 600; }
-        .chat-header p { font-size: 12px; opacity: 0.85; margin-top: 4px; }
+        .chat-header p  { font-size: 12px; opacity: 0.85; margin-top: 4px; }
+
         .chat-messages {
             flex: 1;
             padding: 16px;
             overflow-y: auto;
             background: #f8f9fa;
         }
-        /* 正在处理提示 */
+
         .loading-indicator {
             display: none;
             align-items: center;
@@ -48,93 +49,45 @@
             gap: 8px;
             padding: 12px;
             margin-top: 8px;
-            animation: fadeIn 0.3s ease;
         }
-        .loading-indicator.active {
-            display: flex;
-        }
+        .loading-indicator.active { display: flex; }
         .spinner {
-            width: 16px;
-            height: 16px;
+            width: 16px; height: 16px;
             border: 2px solid #ccc;
             border-top-color: #667eea;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
         }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        .loading-text {
-            font-size: 13px;
-            color: #999;
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 13px; color: #999; }
+
         .message {
             display: flex;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
             animation: fadeIn 0.3s ease;
         }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
+            to   { opacity: 1; transform: translateY(0); }
         }
-        .message.user { justify-content: flex-end; }
-        .message.assistant { justify-content: flex-start; }
+        .message.user         { justify-content: flex-end; }
+        .message.assistant    { justify-content: flex-start; }
         .message.special-card { justify-content: center; }
-        .message-bubble {
-            padding: 10px 14px;
-            border-radius: 14px;
-            font-size: 14px;
-            line-height: 1.6;
-            word-break: break-word;
-            overflow-wrap: anywhere;
-            white-space: pre-wrap;
-        }
-        .message.user .message-bubble {
-            background: #667eea;
-            color: #fff;
-            border-bottom-right-radius: 4px;
-        }
-        .message.assistant .message-bubble {
-            background: #fff;
-            color: #333;
-            border: 1px solid #e0e0e0;
-            border-bottom-left-radius: 4px;
-        }
-        .message.special-card .message-bubble {
-            max-width: 90%;
-            width: 100%;
-            text-align: center;
-            background: #fff;
-            border: 1px solid #e0e0e0;
-        }
-        .message-time {
-            font-size: 10px;
-            color: #999;
-            margin-top: 4px;
-            text-align: right;
-        }
 
-        /* 头像和名称 */
         .message-wrapper {
             display: flex;
             align-items: flex-start;
             gap: 8px;
             max-width: 85%;
+            min-width: 40px;
         }
-        .message.user .message-wrapper {
-            flex-direction: row-reverse;
-            margin-left: auto;
-        }
-        .message.assistant .message-wrapper {
-            flex-direction: row;
-        }
+        .message.user      .message-wrapper { flex-direction: row-reverse; margin-left: auto; }
+        .message.assistant .message-wrapper { flex-direction: row;         margin-right: auto; }
+
         .avatar {
-            width: 36px;
-            height: 36px;
+            width: 36px; height: 36px;
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             font-size: 18px;
             flex-shrink: 0;
             background: #f0f0f5;
@@ -143,33 +96,121 @@
         .message.user .avatar {
             background: #667eea;
             border-color: #667eea;
+            color: #fff;
         }
+
+        .message-content {
+            display: flex;
+            flex-direction: column;
+            flex: 0 1 auto;
+            min-width: 0;
+            max-width: 100%;
+        }
+
         .sender-name {
             font-size: 11px;
             color: #999;
             margin-bottom: 2px;
             padding: 0 4px;
         }
-        .message.user .sender-name {
-            text-align: right;
-        }
-        .message.assistant .sender-name {
-            text-align: left;
-        }
-        .message-content {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            min-width: 0;
+        .message.user      .sender-name { text-align: right; }
+        .message.assistant .sender-name { text-align: left; }
+
+        /* =========================================================
+           气泡 + 三角：完全无缝方案
+           
+           关键：不用伪元素三角，改用 clip-path 直接在气泡上切出
+           三角凸起，一个元素搞定，物理上不存在接缝。
+
+           但 clip-path 会裁掉圆角，所以我们换另一个同样可靠的方案：
+           
+           ★ SVG filter feMorphology 方案 —— 也复杂
+           
+           ★ 最简单可靠方案：
+             用一个正方形 div（旋转 45°），让它压在气泡下面，
+             颜色与气泡一致，用 z-index 让气泡在上、小方块在下。
+             这样气泡的圆角完整保留，小方块只露出一个角，
+             物理上是两个独立元素但颜色完全相同，视觉上无缝。
+             
+             用户侧：小方块放在气泡右侧，颜色 #667eea
+             客服侧：小方块放在气泡左侧，颜色 #fff（需要边框阴影）
+        ========================================================= */
+
+        /* 外层相对定位容器，drop-shadow 加在这里 */
+        .bubble-wrap {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
         }
 
-        /* 选项卡片 */
-        .option-card {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 8px;
+        /* 给客服气泡加整体投影（drop-shadow 把气泡+小方块当整体处理） */
+        .message.assistant .bubble-wrap {
+            filter: drop-shadow(0 1px 3px rgba(0,0,0,0.13));
         }
+        .message.user .bubble-wrap {
+            filter: drop-shadow(0 1px 3px rgba(102,126,234,0.35));
+        }
+
+        /* 旋转小方块：充当三角指示器 */
+        .bubble-wrap::before {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            transform: rotate(45deg);
+            top: 14px;          /* 对齐气泡顶部文字高度 */
+            z-index: 0;         /* 在气泡下方 */
+        }
+
+        /* 客服（左侧）：小方块在气泡左边，颜色白色 */
+        .message.assistant .bubble-wrap::before {
+            background: #fff;
+            left: -4px;         /* 一半露出气泡左边缘，一半压在气泡下方 */
+        }
+
+        /* 用户（右侧）：小方块在气泡右边，颜色紫色 */
+        .message.user .bubble-wrap::before {
+            background: #667eea;
+            right: -4px;        /* 一半露出气泡右边缘，一半压在气泡下方 */
+        }
+
+        /* 气泡主体，z-index 高于小方块，盖住方块内侧的一半 */
+        .message-bubble {
+            position: relative;
+            z-index: 1;
+            padding: 10px 14px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .message.user .message-bubble {
+            background: #667eea;
+            color: #fff;
+        }
+
+        .message.assistant .message-bubble {
+            background: #fff;
+            color: #333;
+        }
+
+        /* 特殊卡片不要三角 */
+        .message.special-card .bubble-wrap::before { display: none; }
+        .message.special-card .bubble-wrap { filter: none; display: block; width: 100%; }
+
+        .message-time {
+            font-size: 10px;
+            color: #999;
+            margin-top: 4px;
+            padding: 0 4px;
+        }
+        .message.user      .message-time { text-align: right; }
+        .message.assistant .message-time { text-align: left; }
+
+        /* 选项卡片 */
+        .option-card { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .option-btn {
             background: #fff;
             border: 1px solid #667eea;
@@ -180,66 +221,11 @@
             font-size: 13px;
             transition: all 0.2s;
             flex: 1 1 calc(50% - 4px);
-            min-width: 120px;
+            min-width: 100px;
         }
-        .option-btn:hover {
-            background: #667eea;
-            color: #fff;
-        }
-        .option-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+        .option-btn:hover { background: #667eea; color: #fff; }
+        .option-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* 规则输入框 */
-        .rule-input-box {
-            margin-top: 8px;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        .rule-input-box .hint {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 8px;
-        }
-        .rule-input-box .example {
-            font-size: 12px;
-            color: #667eea;
-            margin-bottom: 8px;
-        }
-        .rule-input-box input {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-        .rule-input-box .send-btn-small {
-            margin-top: 8px;
-            background: #667eea;
-            color: #fff;
-            border: none;
-            padding: 6px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-        }
-
-        /* 取消排队文字链接 */
-        .cancel-link {
-            display: inline-block;
-            margin-top: 8px;
-            color: #667eea;
-            font-size: 13px;
-            cursor: pointer;
-            text-decoration: underline;
-        }
-        .cancel-link:hover {
-            color: #764ba2;
-        }
-
-        /* 格式样例标签（长椭圆） */
         .format-example {
             display: inline-block;
             background: #f0f0f5;
@@ -251,7 +237,6 @@
             margin-top: 6px;
         }
 
-        /* 错误提示 */
         .error-hint {
             background: #fff3f3;
             border: 1px solid #ffcdd2;
@@ -261,12 +246,8 @@
             margin-top: 8px;
             font-size: 13px;
         }
-        .error-hint .example {
-            color: #667eea;
-            margin-top: 4px;
-        }
+        .error-hint .example { color: #667eea; margin-top: 4px; }
 
-        /* 人工排队 */
         .manual-queue {
             background: #e3f2fd;
             border: 1px solid #90caf9;
@@ -275,6 +256,7 @@
             text-align: center;
         }
         .manual-queue .cancel-btn {
+            display: inline-block;
             margin-top: 12px;
             background: #fff;
             border: 1px solid #667eea;
@@ -285,7 +267,15 @@
             font-size: 13px;
         }
 
-        /* 预设问题 */
+        .cancel-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: #667eea;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
         .preset-questions {
             display: flex;
             flex-wrap: wrap;
@@ -304,10 +294,7 @@
             font-size: 12px;
             transition: all 0.2s;
         }
-        .preset-btn:hover {
-            background: #667eea;
-            color: #fff;
-        }
+        .preset-btn:hover { background: #667eea; color: #fff; }
 
         .chat-input-area {
             padding: 12px 16px;
@@ -334,13 +321,10 @@
             color: #fff;
             border: none;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
+            width: 40px; height: 40px;
             cursor: pointer;
             font-size: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             transition: transform 0.2s;
         }
         .send-btn:hover { transform: scale(1.05); }
@@ -353,486 +337,285 @@
             text-align: center;
             background: #f0f0f0;
         }
-        .status-bar.connected { color: #28a745; }
+        .status-bar.connected    { color: #28a745; }
         .status-bar.disconnected { color: #dc3545; }
 
         .chat-messages::-webkit-scrollbar { width: 6px; }
         .chat-messages::-webkit-scrollbar-track { background: transparent; }
         .chat-messages::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+
+        @media (max-width: 480px) {
+            .chat-messages { padding: 12px; }
+            .message-wrapper { max-width: 90%; gap: 6px; }
+            .avatar { width: 32px; height: 32px; font-size: 16px; }
+            .message-bubble { padding: 8px 12px; font-size: 14px; }
+        }
     </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <h1>🤖 ITR 智能客服</h1>
-            <p>7×24 小时在线为您服务</p>
-        </div>
-        <div class="status-bar" id="statusBar">正在连接...</div>
-        <div class="chat-messages" id="chatMessages">
-            <div class="loading-indicator" id="loadingIndicator">
-                <div class="spinner"></div>
-                <div class="loading-text">亲，小智正在快马加鞭处理...</div>
-            </div>
-        </div>
-        <div class="preset-questions" id="presetQuestions">
-            <button class="preset-btn" onclick="sendPreset('系统报错怎么办？')">🔧 系统报错</button>
-            <button class="preset-btn" onclick="sendPreset('如何修改账号信息？')">👤 账号问题</button>
-            <button class="preset-btn" onclick="sendPreset('套餐升级怎么操作？')">💳 套餐升级</button>
-            <button class="preset-btn" onclick="sendPreset('新功能怎么用？')">✨ 功能咨询</button>
-        </div>
-        <div class="chat-input-area">
-            <textarea class="chat-input" id="chatInput" rows="1" placeholder="请输入您的问题..."></textarea>
-            <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+<div class="chat-container">
+    <div class="chat-header">
+        <h1>🤖 ITR 智能客服</h1>
+        <p>7×24 小时在线为您服务</p>
+    </div>
+    <div class="status-bar" id="statusBar">正在连接...</div>
+    <div class="chat-messages" id="chatMessages">
+        <div class="loading-indicator" id="loadingIndicator">
+            <div class="spinner"></div>
+            <div class="loading-text">亲，小智正在快马加鞭处理...</div>
         </div>
     </div>
+    <div class="preset-questions">
+        <button class="preset-btn" onclick="sendPreset('系统报错怎么办？')">🔧 系统报错</button>
+        <button class="preset-btn" onclick="sendPreset('如何修改账号信息？')">👤 账号问题</button>
+        <button class="preset-btn" onclick="sendPreset('套餐升级怎么操作？')">💳 套餐升级</button>
+        <button class="preset-btn" onclick="sendPreset('新功能怎么用？')">✨ 功能咨询</button>
+    </div>
+    <div class="chat-input-area">
+        <textarea class="chat-input" id="chatInput" rows="1" placeholder="请输入您的问题..."></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+    </div>
+</div>
 
-    <script>
-        const chatMessages = document.getElementById('chatMessages');
-        const chatInput = document.getElementById('chatInput');
-        const sendBtn = document.getElementById('sendBtn');
-        const statusBar = document.getElementById('statusBar');
-        const presetQuestions = document.getElementById('presetQuestions');
+<script>
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput    = document.getElementById('chatInput');
+    const sendBtn      = document.getElementById('sendBtn');
+    const statusBar    = document.getElementById('statusBar');
+    const loadingIndicator = document.getElementById('loadingIndicator');
 
-        let ws = null;
-        let currentStatus = 'active';
-        let currentInteractive = null; // 当前交互组件状态
-        const loadingIndicator = document.getElementById('loadingIndicator');
+    let ws = null;
+    let currentStatus = 'active';
+    let currentInteractive = null;
 
-        // 自动调整 textarea 高度
-        chatInput.addEventListener('input', () => {
-            chatInput.style.height = 'auto';
-            chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
-        });
-        chatInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
+    chatInput.addEventListener('input', () => {
+        chatInput.style.height = 'auto';
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
+    });
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
 
-        function showLoading() {
-            if (loadingIndicator) loadingIndicator.classList.add('active');
+    function showLoading() { loadingIndicator.classList.add('active'); }
+    function hideLoading() { loadingIndicator.classList.remove('active'); }
+
+    function connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+        ws.onopen    = () => { statusBar.textContent = '已连接'; statusBar.className = 'status-bar connected'; };
+        ws.onmessage = (e) => { hideLoading(); handleMessage(JSON.parse(e.data)); };
+        ws.onclose   = () => { statusBar.textContent = '已断开，5秒后重连...'; statusBar.className = 'status-bar disconnected'; hideLoading(); setTimeout(connect, 5000); };
+        ws.onerror   = ()  => { statusBar.textContent = '连接错误'; statusBar.className = 'status-bar disconnected'; hideLoading(); };
+    }
+
+    function handleMessage(data) {
+        console.log("data>>>>>"+ JSON.stringify(data));
+        switch (data.type) {
+            case 'welcome':                addMessage('assistant', data.content); break;
+            case 'reply':                  addMessage('assistant', data.content); if (data.status) currentStatus = data.status; break;
+            case 'manual_queue':           showManualQueueWithCancel(data); currentStatus = data.status || 'manual_queue'; break;
+            case 'ask_options':            showOptionCard(data); currentInteractive = { type: 'options', fieldId: data.field_id }; break;
+            case 'ask_input':              showHintMessage(data); currentInteractive = { type: 'input', fieldId: data.field_id }; break;
+            case 'error_hint':             showErrorHint(data); break;
+            case 'error_hint_with_manual': showErrorHintWithManual(data); break;
+            case 'force_manual':           showManualQueue(data); currentStatus = 'manual_queue'; break;
+            case 'status_change':          currentStatus = data.status; if (data.reset) addSystemMessage('已重置对话，请重新描述您的问题。'); break;
+            case 'error':                  addMessage('assistant', `⚠️ ${data.content}`); break;
         }
-        function hideLoading() {
-            if (loadingIndicator) loadingIndicator.classList.remove('active');
-        }
+    }
 
-        function connect() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-            ws.onopen = () => {
-                statusBar.textContent = '已连接';
-                statusBar.className = 'status-bar connected';
-            };
-
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                hideLoading();
-                handleMessage(data);
-            };
-
-            ws.onclose = () => {
-                statusBar.textContent = '已断开，5秒后重连...';
-                statusBar.className = 'status-bar disconnected';
-                hideLoading();
-                setTimeout(connect, 5000);
-            };
-
-            ws.onerror = (err) => {
-                console.error('WebSocket 错误:', err);
-                statusBar.textContent = '连接错误';
-                statusBar.className = 'status-bar disconnected';
-                hideLoading();
-            };
-        }
-
-        function handleMessage(data) {
-            switch (data.type) {
-                case 'welcome':
-                    addMessage('assistant', data.content);
-                    break;
-                case 'reply':
-                    addMessage('assistant', data.content);
-                    if (data.status) currentStatus = data.status;
-                    break;
-                case 'manual_queue':
-                    // 显示排队消息 + 取消排队文字链接
-                    showManualQueueWithCancel(data);
-                    currentStatus = data.status || 'manual_queue';
-                    break;
-                case 'ask_options':
-                    // 显示选项卡片
-                    showOptionCard(data);
-                    currentInteractive = { type: 'options', fieldId: data.field_id };
-                    break;
-                case 'ask_input':
-                    // 显示提示消息 + 格式样例标签（用户在底部聊天框输入）
-                    showHintMessage(data);
-                    currentInteractive = { type: 'input', fieldId: data.field_id };
-                    break;
-                case 'error_hint':
-                    // 显示错误提示
-                    showErrorHint(data);
-                    break;
-                case 'error_hint_with_manual':
-                    // 显示错误提示 + 转人工选项
-                    showErrorHintWithManual(data);
-                    break;
-                case 'force_manual':
-                    // 强行转人工
-                    showManualQueue(data);
-                    currentStatus = 'manual_queue';
-                    break;
-                case 'status_change':
-                    currentStatus = data.status;
-                    if (data.reset) {
-                        addSystemMessage('已重置对话，请重新描述您的问题。');
-                    }
-                    break;
-                case 'error':
-                    addMessage('assistant', `⚠️ ${data.content}`);
-                    break;
+    function sendMessage() {
+        const text = chatInput.value.trim();
+        if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+        if (currentStatus === 'manual_queue') {
+            const kws = ['取消','算了','不排队了','取消人工','取消排队','不等了'];
+            if (kws.some(k => text.includes(k))) {
+                ws.send(JSON.stringify({ type: 'cancel_manual' }));
+                chatInput.value = ''; chatInput.style.height = 'auto'; return;
             }
         }
+        addMessage('user', text);
+        chatInput.value = ''; chatInput.style.height = 'auto';
+        showLoading();
+        let payload = { type: 'text', content: text };
+        if (currentStatus === 'awaiting_satisfaction') payload = { type: 'satisfaction', content: text };
+        else if (currentStatus === 'awaiting_choice')  payload = { type: 'choice', content: text };
+        else if (currentInteractive?.fieldId)          payload.field_id = currentInteractive.fieldId;
+        ws.send(JSON.stringify(payload));
+        currentInteractive = null;
+    }
 
-        function sendMessage() {
-            const text = chatInput.value.trim();
-            if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    function sendPreset(text) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        addMessage('user', text);
+        chatInput.value = ''; chatInput.style.height = 'auto';
+        showLoading();
+        ws.send(JSON.stringify({ type: 'text', content: text }));
+    }
 
-            // 如果在人工排队状态，检查是否是取消关键词
-            if (currentStatus === 'manual_queue') {
-                const cancelKeywords = ['取消', '算了', '不排队了', '取消人工', '取消排队', '不等了'];
-                if (cancelKeywords.some(kw => text.includes(kw))) {
-                    ws.send(JSON.stringify({ type: 'cancel_manual' }));
-                    chatInput.value = '';
-                    chatInput.style.height = 'auto';
-                    return;
-                }
-            }
+    /* ---- 构建消息 DOM 的辅助函数 ---- */
+    function makeBubble(role, contentHtml, timeStr) {
+        const isUser = role === 'user';
+        const div = document.createElement('div');
+        div.className = `message ${role}`;
+        div.innerHTML = `
+            <div class="message-wrapper">
+                <div class="avatar">${isUser ? '👤' : '🤖'}</div>
+                <div class="message-content">
+                    <div class="sender-name">${isUser ? '用户' : '智能客服'}</div>
+                    <div class="bubble-wrap">
+                        <div class="message-bubble">${contentHtml}</div>
+                    </div>
+                    ${timeStr ? `<div class="message-time">${timeStr}</div>` : ''}
+                </div>
+            </div>`;
+        return div;
+    }
 
-            addMessage('user', text);
-            chatInput.value = '';
-            chatInput.style.height = 'auto';
-            showLoading();
+    function now() {
+        return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    }
 
-            let payload = { type: 'text', content: text };
+    function addMessage(role, content) {
+        chatMessages.appendChild(makeBubble(role, escapeHtml(content), now()));
+        scrollToBottom();
+    }
 
-            // 如果在等待满意度
-            if (currentStatus === 'awaiting_satisfaction') {
-                payload = { type: 'satisfaction', content: text };
-            }
-            // 如果在等待选择
-            else if (currentStatus === 'awaiting_choice') {
-                payload = { type: 'choice', content: text };
-            }
-            // 如果在回答追问（选项卡片或规则字段），带上 field_id
-            else if (currentInteractive && currentInteractive.fieldId) {
-                payload.field_id = currentInteractive.fieldId;
-            }
+    function addSystemMessage(content) {
+        const div = makeBubble('assistant',
+            `<span style="color:#1565c0;font-size:12px;">💡 ${escapeHtml(content)}</span>`, now());
+        div.querySelector('.message-bubble').style.background = '#e3f2fd';
+        chatMessages.appendChild(div); scrollToBottom();
+    }
 
-            ws.send(JSON.stringify(payload));
-            // 追问回复发送后，清除当前交互状态（后端如有新追问会重新设置）
-            currentInteractive = null;
-        }
-
-        function sendPreset(text) {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
-            addMessage('user', text);
-            chatInput.value = '';
-            chatInput.style.height = 'auto';
-            showLoading();
-            ws.send(JSON.stringify({ type: 'text', content: text }));
-        }
-
-        // ---- 选项卡片组件 ----
-        function showOptionCard(data) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            div.id = `interactive-${data.field_id}`;
-
-            let optionsHtml = '';
-            data.options.forEach(opt => {
-                optionsHtml += `<button class="option-btn" onclick="selectOption('${data.field_id}', '${opt.value}', this)">${opt.label}</button>`;
-            });
-
-            div.innerHTML = `
-                <div class="message-wrapper">
-                    <div class="avatar">🤖</div>
-                    <div class="message-content">
-                        <div class="sender-name">智能客服</div>
+    function showOptionCard(data) {
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+        div.id = `interactive-${data.field_id}`;
+        let opts = data.options.map(o =>
+            `<button class="option-btn" onclick="selectOption('${data.field_id}','${o.value}',this)">${escapeHtml(o.label)}</button>`
+        ).join('');
+        div.innerHTML = `
+            <div class="message-wrapper">
+                <div class="avatar">🤖</div>
+                <div class="message-content">
+                    <div class="sender-name">智能客服</div>
+                    <div class="bubble-wrap">
                         <div class="message-bubble">
-                            <div style="margin-bottom:8px;">${data.question}</div>
-                            <div class="option-card">${optionsHtml}</div>
+                            <div style="margin-bottom:8px;">${escapeHtml(data.question)}</div>
+                            <div class="option-card">${opts}</div>
                         </div>
                     </div>
                 </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-        }
+            </div>`;
+        chatMessages.appendChild(div); scrollToBottom();
+    }
 
-        function selectOption(fieldId, value, btn) {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    window.selectOption = function(fieldId, value, btn) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const card = document.getElementById(`interactive-${fieldId}`);
+        if (card) card.querySelectorAll('.option-btn').forEach(b => {
+            b.disabled = true;
+            if (b === btn) { b.style.background = '#667eea'; b.style.color = '#fff'; }
+            else b.style.opacity = '0.5';
+        });
+        ws.send(JSON.stringify({ type: 'field_fill', field_id: fieldId, value }));
+        showLoading(); currentInteractive = null;
+    };
 
-            // 禁用所有选项按钮
-            const card = document.getElementById(`interactive-${fieldId}`);
-            if (card) {
-                card.querySelectorAll('.option-btn').forEach(b => {
-                    b.disabled = true;
-                    if (b === btn) {
-                        b.style.background = '#667eea';
-                        b.style.color = '#fff';
-                    } else {
-                        b.style.opacity = '0.3';
-                    }
-                });
-            }
+    function showHintMessage(data) {
+        let ex = data.example ? `<div style="margin-top:6px;"><span class="format-example">💡 格式样例：${escapeHtml(data.example)}</span></div>` : '';
+        chatMessages.appendChild(makeBubble('assistant', escapeHtml(data.question) + ex, now()));
+        scrollToBottom();
+    }
 
-            ws.send(JSON.stringify({
-                type: 'field_fill',
-                field_id: fieldId,
-                value: value
-            }));
-            showLoading();
-            currentInteractive = null;
-        }
-
-        // ---- 提示消息 + 格式样例组件 ----
-        function showHintMessage(data) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-
-            let exampleHtml = '';
-            if (data.example) {
-                exampleHtml = `<div style="margin-top:6px;"><span class="format-example">💡 格式样例：${escapeHtml(data.example)}</span></div>`;
-            }
-
-            div.innerHTML = `
-                <div class="message-wrapper">
-                    <div class="avatar">🤖</div>
-                    <div class="message-content">
-                        <div class="sender-name">智能客服</div>
-                        <div class="message-bubble">
-                            ${escapeHtml(data.question)}${exampleHtml}
-                        </div>
-                        <div class="message-time">${time}</div>
-                    </div>
-                </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-        }
-
-        // ---- 规则输入组件（已废弃，保留兼容） ----
-        function showRuleInput(data) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            div.id = `interactive-${data.field_id}`;
-
-            div.innerHTML = `
-                <div>
-                    <div class="message-bubble">
-                        <div style="margin-bottom:8px;">${data.question}</div>
-                        <div class="rule-input-box">
-                            <div class="hint">${data.hint || ''}</div>
-                            <div class="example">💡 例如：${data.example || ''}</div>
-                            <input type="text" id="rule-input-${data.field_id}" placeholder="${data.placeholder || ''}">
-                            <button class="send-btn-small" onclick="submitRuleInput('${data.field_id}')">提交</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-
-            // 自动聚焦输入框
-            setTimeout(() => {
-                const input = document.getElementById(`rule-input-${data.field_id}`);
-                if (input) input.focus();
-            }, 100);
-        }
-
-        function submitRuleInput(fieldId) {
-            const input = document.getElementById(`rule-input-${fieldId}`);
-            if (!input) return;
-
-            const value = input.value.trim();
-            if (!value) return;
-
-            // 禁用输入和按钮
-            input.disabled = true;
-            const btn = input.parentElement.querySelector('.send-btn-small');
-            if (btn) btn.disabled = true;
-
-            addMessage('user', value);
-            showLoading();
-            ws.send(JSON.stringify({
-                type: 'text',
-                field_id: fieldId,
-                content: value
-            }));
-
-            currentInteractive = null;
-        }
-
-        // ---- 错误提示组件 ----
-        function showErrorHint(data) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            div.innerHTML = `
-                <div class="message-wrapper">
-                    <div class="avatar">🤖</div>
-                    <div class="message-content">
-                        <div class="sender-name">智能客服</div>
+    function showErrorHint(data) {
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+        div.innerHTML = `
+            <div class="message-wrapper">
+                <div class="avatar">🤖</div>
+                <div class="message-content">
+                    <div class="sender-name">智能客服</div>
+                    <div class="bubble-wrap">
                         <div class="error-hint">
-                            ⚠️ ${data.content}
-                            <div class="example">💡 ${data.example || ''}</div>
+                            ⚠️ ${escapeHtml(data.content)}
+                            <div class="example">💡 ${escapeHtml(data.example||'')}</div>
                         </div>
                     </div>
                 </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-        }
+            </div>`;
+        chatMessages.appendChild(div); scrollToBottom();
+    }
 
-        function showErrorHintWithManual(data) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            const msgId = `error-manual-${Date.now()}`;
-            div.id = msgId;
-            div.innerHTML = `
-                <div class="message-wrapper">
-                    <div class="avatar">🤖</div>
-                    <div class="message-content">
-                        <div class="sender-name">智能客服</div>
+    function showErrorHintWithManual(data) {
+        const id = `em-${Date.now()}`;
+        const div = document.createElement('div');
+        div.className = 'message assistant'; div.id = id;
+        div.innerHTML = `
+            <div class="message-wrapper">
+                <div class="avatar">🤖</div>
+                <div class="message-content">
+                    <div class="sender-name">智能客服</div>
+                    <div class="bubble-wrap">
                         <div class="error-hint">
-                            ⚠️ ${data.content}
-                            <div class="example">💡 ${data.example || ''}</div>
+                            ⚠️ ${escapeHtml(data.content)}
+                            <div class="example">💡 ${escapeHtml(data.example||'')}</div>
                             <div style="margin-top:8px;">
-                                <button class="option-btn" style="flex:none;width:auto;" onclick="sendManualRequest('${msgId}')">🎧 转接人工客服</button>
+                                <button class="option-btn" style="flex:none;width:auto;" onclick="sendManualRequest('${id}')">🎧 转接人工客服</button>
                             </div>
                         </div>
                     </div>
                 </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-        }
+            </div>`;
+        chatMessages.appendChild(div); scrollToBottom();
+    }
 
-        function sendManualRequest(msgId) {
-            // 禁用按钮
-            const div = document.getElementById(msgId);
-            if (div) {
-                div.querySelectorAll('button').forEach(b => {
-                    b.disabled = true;
-                    b.style.opacity = '0.5';
-                });
-            }
-            ws.send(JSON.stringify({ type: 'text', content: '转人工' }));
-        }
+    window.sendManualRequest = function(id) {
+        const div = document.getElementById(id);
+        if (div) div.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+        ws.send(JSON.stringify({ type: 'text', content: '转人工' }));
+    };
 
-        // ---- 人工排队组件（带取消文字链接） ----
-        function showManualQueueWithCancel(data) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-            div.innerHTML = `
-                <div class="message-wrapper">
-                    <div class="avatar">🤖</div>
-                    <div class="message-content">
-                        <div class="sender-name">智能客服</div>
+    function showManualQueueWithCancel(data) {
+        const div = makeBubble('assistant',
+            `${escapeHtml(data.content)}<div class="cancel-link" onclick="cancelManual()">取消排队</div>`, now());
+        chatMessages.appendChild(div); scrollToBottom();
+    }
+
+    function showManualQueue(data) {
+        const div = document.createElement('div');
+        div.className = 'message special-card';
+        div.innerHTML = `
+            <div class="message-wrapper" style="max-width:90%;margin:0 auto;">
+                <div class="message-content" style="width:100%;">
+                    <div class="bubble-wrap" style="width:100%;">
                         <div class="message-bubble">
-                            ${escapeHtml(data.content)}
-                            <div class="cancel-link" onclick="cancelManual()">取消排队</div>
-                        </div>
-                        <div class="message-time">${time}</div>
-                    </div>
-                </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-        }
-
-        // ---- 人工排队组件（强行转人工时的全屏卡片） ----
-        function showManualQueue(data) {
-            const div = document.createElement('div');
-            div.className = 'message special-card';
-            div.innerHTML = `
-                <div>
-                    <div class="message-bubble">
-                        <div class="manual-queue">
-                            <div style="font-size:24px;margin-bottom:8px;">🎧</div>
-                            <div style="font-weight:600;margin-bottom:4px;">${data.content}</div>
-                            <div style="font-size:12px;color:#666;">您可以在下方继续描述问题，客服上线后会第一时间查看</div>
-                            <button class="cancel-btn" onclick="cancelManual()">取消排队</button>
+                            <div class="manual-queue">
+                                <div style="font-size:24px;margin-bottom:8px;">🎧</div>
+                                <div style="font-weight:600;margin-bottom:4px;">${escapeHtml(data.content)}</div>
+                                <div style="font-size:12px;color:#666;">您可以在下方继续描述问题，客服上线后会第一时间查看</div>
+                                <button class="cancel-btn" onclick="cancelManual()">取消排队</button>
+                            </div>
                         </div>
                     </div>
                 </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-        }
+            </div>`;
+        chatMessages.appendChild(div); scrollToBottom();
+    }
 
-        function cancelManual() {
-            ws.send(JSON.stringify({ type: 'cancel_manual' }));
-        }
+    window.cancelManual = function() { ws.send(JSON.stringify({ type: 'cancel_manual' })); };
 
-        // ---- 通用方法 ----
-        function addMessage(role, content) {
-            const div = document.createElement('div');
-            div.className = `message ${role}`;
-            const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-            const isUser = role === 'user';
-            const avatar = isUser ? '👤' : '🤖';
-            const name = isUser ? '用户' : '智能客服';
-            div.innerHTML = `
-                <div class="message-wrapper">
-                    <div class="avatar">${avatar}</div>
-                    <div class="message-content">
-                        <div class="sender-name">${name}</div>
-                        <div class="message-bubble">${escapeHtml(content)}</div>
-                        <div class="message-time">${time}</div>
-                    </div>
-                </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-        }
+    function scrollToBottom() { chatMessages.scrollTop = chatMessages.scrollHeight; }
 
-        function addSystemMessage(content) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-            div.innerHTML = `
-                <div class="message-wrapper">
-                    <div class="avatar">🤖</div>
-                    <div class="message-content">
-                        <div class="sender-name">智能客服</div>
-                        <div class="message-bubble" style="background:#e3f2fd;border-color:#90caf9;color:#1565c0;font-size:12px;">
-                            💡 ${escapeHtml(content)}
-                        </div>
-                        <div class="message-time">${time}</div>
-                    </div>
-                </div>
-            `;
-            chatMessages.appendChild(div);
-            scrollToBottom();
-        }
+    function escapeHtml(t) {
+        if (!t) return '';
+        const d = document.createElement('div');
+        d.textContent = t;
+        return d.innerHTML;
+    }
 
-        function scrollToBottom() {
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // 启动
-        connect();
-    </script>
+    connect();
+</script>
 </body>
 </html>

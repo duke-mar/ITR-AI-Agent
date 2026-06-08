@@ -84,6 +84,14 @@ class IntentRecognitionNode(INode):
 
         # 兜底：如果 LLM 返回 unknown，但输入明显不是客服业务问题，强制改为 off_topic
         if intent == "unknown":
+            # 无意义重复字符/乱码检测, 关键词过滤，可以升级为llm检测-----------------------！！！！！！！！！！！！！！！
+            if self._is_gibberish(last_msg):
+                logger.info(f"LLM 判为 unknown，但输入明显无意义，强制改为 off_topic: {last_msg[:50]}")
+                intent = "off_topic"
+                supplement = "none"
+                updates = {"intent": intent, "supplement": supplement}
+                return updates
+            #  关键词过滤，可以升级为llm检测-----------------------！！！！！！！！！！！！！！！    
             if self._is_obviously_off_topic(last_msg):
                 logger.info(f"LLM 判为 unknown，但输入明显无关，强制改为 off_topic: {last_msg[:50]}")
                 intent = "off_topic"
@@ -99,9 +107,26 @@ class IntentRecognitionNode(INode):
                 "interactive": None,
             }
 
+        # 兜底：如果 LLM 判为 manual，但用户最近一次输入明显不是转人工
+        # （如刚取消人工后输入了业务问题），避免受历史消息影响重复触发转人工
+        if intent == "manual":
+            messages = state.get("messages", [])
+            last_user = ""
+            for m in reversed(messages):
+                if m.get("role") == "user":
+                    last_user = m.get("content", "")
+                    break
+            # 只有用户最近一次输入明确包含转人工关键词，才真的转人工----------------------------------可升级为有llm判断意图
+            manual_keywords = ["人工", "客服", "转人工", "人工客服", "找人工", "接人工", "投诉"]
+            is_real_manual = any(kw in last_user for kw in manual_keywords)
+            if not is_real_manual:
+                logger.info(f"路由: manual 但用户最近输入'{last_user}'不含转人工关键词，忽略 -> solution_generation")
+                decrease_level_intent = "solution_generation"    
+
         # 步骤3：组装基础更新
         updates: Dict[str, Any] = {
             "intent": intent,
+            "decrease_level_intent": decrease_level_intent,
             "supplement": supplement,
         }
 
@@ -125,7 +150,7 @@ class IntentRecognitionNode(INode):
                 updates["interactive"] = None
         else:
             # 非业务意图（manual/greeting/unknown），清除追问状态
-            updates["interactive"] = None
+            updates["interactive"] = None    
 
         return updates
 
@@ -191,66 +216,65 @@ class IntentRecognitionNode(INode):
         intent_list = "\n".join(intent_items)
 
         return f"""你是对话意图分析专家。分析用户输入的对话历史，输出用户当前意图和补充状态。
+        ## 意图类型
+        {intent_list}
+        - greeting: 用户只是打招呼、问好、寒暄（如"你好"、"在吗"、"早上好"、"嗨"）
+        - off_topic: 用户输入与客服业务完全无关的内容。包括：闲聊（如"今天天气不错"）、纯名词（如"霓虹"、"苹果"、"篮球"，没有提出具体客服问题）、无意义重复字符/乱码（如"卡卡卡卡卡"、"吭吭唧唧咔咔咔"）、诗词、娱乐八卦、时事新闻等
+        - manual: 用户明确要求转人工客服或情绪很不满（如"人工客服"、"转人工"、"我要投诉"）
+        - unknown: 用户输入模糊，但可能与客服相关，只是无法确定具体类别（如"怎么办"、"出问题了"）
 
-## 意图类型
-{intent_list}
-- greeting: 用户只是打招呼、问好、寒暄（如"你好"、"在吗"、"早上好"、"嗨"）
-- off_topic: 用户输入与客服业务完全无关的内容。包括：闲聊（如"今天天气不错"）、纯名词（如"霓虹"、"苹果"、"篮球"，没有提出具体客服问题）、无意义重复字符/乱码（如"卡卡卡卡卡"、"吭吭唧唧咔咔咔"）、诗词、娱乐八卦、时事新闻等
-- manual: 用户明确要求转人工客服或情绪很不满（如"人工客服"、"转人工"、"我要投诉"）
-- unknown: 用户输入模糊，但可能与客服相关，只是无法确定具体类别（如"怎么办"、"出问题了"）
+        ## 补充状态（三选一）
+        - none: 机器人未追问，或用户刚切换意图
+        - ing: 机器人正在追问，用户正在补充信息中
+        - done: 用户已明确表示补充完毕或不继续回答（说"没有"/"没了"/"取消"/"算了"/"不要了"/"不用了"/"跳过"/"不知道"/"没有呢"/"没"）
 
-## 补充状态（三选一）
-- none: 机器人未追问，或用户刚切换意图
-- ing: 机器人正在追问，用户正在补充信息中
-- done: 用户已明确表示补充完毕或不继续回答（说"没有"/"没了"/"取消"/"算了"/"不要了"/"不用了"/"跳过"/"不知道"/"没有呢"/"没"）
+        ## 核心规则
+        1. 意图切换时，supplement 必须为 none
+        2. 只有机器人追问后，用户才可能处于 ing 或 done
+        3. 用户说"没有"/"没了"/"取消"/"算了"/"不要了"/"不用了"/"跳过"/"不知道"/"没有呢"/"没"时，supplement = done
+        4. 当用户表达不满、愤怒、情绪化时，intent = "manual"
+        5. 用户只是打招呼（"你好"、"在吗"）时，intent = "greeting"
+        6. 用户输入与客服完全无关时，intent = "off_topic"
+        7. 用户输入明显无意义的重复字符、乱码（如"卡卡卡卡卡"、"吭吭唧唧咔咔咔"）时，intent = "off_topic"
+        8. 用户输入模糊、无法判断时，intent = "unknown"
 
-## 核心规则
-1. 意图切换时，supplement 必须为 none
-2. 只有机器人追问后，用户才可能处于 ing 或 done
-3. 用户说"没有"/"没了"/"取消"/"算了"/"不要了"/"不用了"/"跳过"/"不知道"/"没有呢"/"没"时，supplement = done
-4. 当用户表达不满、愤怒、情绪化时，intent = "manual"
-5. 用户只是打招呼（"你好"、"在吗"）时，intent = "greeting"
-6. 用户输入与客服完全无关时，intent = "off_topic"
-7. 用户输入明显无意义的重复字符、乱码（如"卡卡卡卡卡"、"吭吭唧唧咔咔咔"）时，intent = "off_topic"
-8. 用户输入模糊、无法判断时，intent = "unknown"
+        ## 分析步骤
+        1. 提取最后一条用户消息，判断意图
+        2. 对比上一轮意图，判断是否切换
+        3. 检查最后一条机器人消息是否包含追问词（请补充、请提供、还有吗）
+        4. 若意图切换 → {{"intent": "xxx", "supplement": "none"}}
+        5. 若未切换且机器人追问 →
+        - 用户消息含"没有"/"没了"/"取消"/"算了"/"不要了"/"不用了"/"跳过"/"不知道"/"没有呢"/"没" → done
+        - 否则 → ing
 
-## 分析步骤
-1. 提取最后一条用户消息，判断意图
-2. 对比上一轮意图，判断是否切换
-3. 检查最后一条机器人消息是否包含追问词（请补充、请提供、还有吗）
-4. 若意图切换 → {{"intent": "xxx", "supplement": "none"}}
-5. 若未切换且机器人追问 →
-   - 用户消息含"没有"/"没了"/"取消"/"算了"/"不要了"/"不用了"/"跳过"/"不知道"/"没有呢"/"没" → done
-   - 否则 → ing
+        ## 输出格式
+        只输出 JSON，不要其他内容：
+        {{"intent": "xxx", "supplement": "xxx"}}
 
-## 输出格式
-只输出 JSON，不要其他内容：
-{{"intent": "xxx", "supplement": "xxx"}}
+        ## 示例
+        输入：[{{"role":"user","content":"系统报错怎么办？"}}]
+        输出：{{"intent":"technical","supplement":"none"}}
 
-## 示例
-输入：[{{"role":"user","content":"系统报错怎么办？"}}]
-输出：{{"intent":"technical","supplement":"none"}}
+        输入：[{{"role":"user","content":"你好"}}]
+        输出：{{"intent":"greeting","supplement":"none"}}
 
-输入：[{{"role":"user","content":"你好"}}]
-输出：{{"intent":"greeting","supplement":"none"}}
+        输入：[{{"role":"user","content":"今天天气不错"}}]
+        输出：{{"intent":"off_topic","supplement":"none"}}
 
-输入：[{{"role":"user","content":"今天天气不错"}}]
-输出：{{"intent":"off_topic","supplement":"none"}}
+        输入：[{{"role":"user","content":"霓虹"}}]
+        输出：{{"intent":"off_topic","supplement":"none"}}
 
-输入：[{{"role":"user","content":"霓虹"}}]
-输出：{{"intent":"off_topic","supplement":"none"}}
+        输入：[{{"role":"user","content":"周杰伦的歌"}}]
+        输出：{{"intent":"off_topic","supplement":"none"}}
 
-输入：[{{"role":"user","content":"周杰伦的歌"}}]
-输出：{{"intent":"off_topic","supplement":"none"}}
+        输入：[{{"role":"user","content":"吭吭唧唧咔咔咔"}}]
+        输出：{{"intent":"off_topic","supplement":"none"}}
 
-输入：[{{"role":"user","content":"吭吭唧唧咔咔咔"}}]
-输出：{{"intent":"off_topic","supplement":"none"}}
+        输入：[{{"role":"assistant","content":"请提供错误代码"}},{{"role":"user","content":"500"}}]
+        输出：{{"intent":"technical","supplement":"ing"}}
 
-输入：[{{"role":"assistant","content":"请提供错误代码"}},{{"role":"user","content":"500"}}]
-输出：{{"intent":"technical","supplement":"ing"}}
-
-输入：[{{"role":"assistant","content":"请提供错误代码"}},{{"role":"user","content":"没有"}}]
-输出：{{"intent":"technical","supplement":"done"}}"""
+        输入：[{{"role":"assistant","content":"请提供错误代码"}},{{"role":"user","content":"没有"}}]
+        输出：{{"intent":"technical","supplement":"done"}}"""
 
     def _is_obviously_off_topic(self, text: str) -> bool:
         """

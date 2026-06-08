@@ -15,6 +15,7 @@ ITR 智能客服机器人 —— FastAPI + WebSocket 入口
 import json
 import logging
 import os
+from re import T
 import sys
 import uuid
 from typing import Any, Dict, Optional
@@ -340,6 +341,25 @@ async def _handle_field_fill(
 
     return True
 
+async def _handle_repeat_manual(
+    websocket: WebSocket,
+    state: Dict[str, Any],
+    session_id: str,
+) -> bool:
+    """处理用户排队中重复转人工，提示正在排队中！"""
+    
+    # 把取消消息写入对话历史，让 LLM 知道用户已放弃转人工
+    repeat_reply = "已为您转接人工客服，请稍等，正在为您排队..."
+    messages = list(state.get("messages", []))
+    messages.append({"role": "assistant", "content": repeat_reply})
+    state["messages"] = messages
+    manager.set_state(session_id, state)
+    await websocket.send_json({
+        "type": "manual_queue",
+        "content": repeat_reply,
+    })
+    return True
+
 
 async def _handle_cancel_manual(
     websocket: WebSocket,
@@ -467,6 +487,7 @@ async def _handle_normal_flow(
         config = {"configurable": {"thread_id": session_id}}
         result = await graph.ainvoke(state, config=config)
         state.update(result)
+        
         manager.set_state(session_id, state)
         await _send_response(websocket, state)
     except Exception as e:
@@ -497,6 +518,11 @@ def _is_strong_cancel(text: str) -> bool:
     lowered = text.lower()
     return any(kw in lowered for kw in strong_keywords)
 
+def _is_manual_request(text: str) -> bool:
+    """判断用户是否要求转人工"""
+    manual_keywords = ["人工", "客服", "转人工", "人工客服", "找人工", "接人工", "投诉", "强制人工", "强制转人工", "强制人工客服", "强制接人工", "强制投诉", "我要强制投诉", "强制找你们领导"]
+    is_manual = any(kw in text for kw in manual_keywords)
+    return is_manual
 
 def _is_cancel_manual_request(text: str) -> bool:
     """判断用户是否想取消人工排队"""
@@ -581,11 +607,18 @@ async def _dispatch_message(
     user_content = msg.get("content", "")
     interactive = state.get("interactive")
     status = state.get("status")
-
+    logger.info(f"[{session_id}]-消息分发处理----- 收到消息: {msg_type} - {user_content}")
     # 优先级-1：人工排队状态
     if status in ("transferred", "manual_queue"):
         if _is_cancel_manual_request(user_content) or msg_type == "cancel_manual":
             return await _handle_cancel_manual(websocket, state, session_id)
+        else:
+            # 用户没有明确取消人工排队，且用户意图时转人工（排队场景下，用户输入转人工关键词，不取消排队再排队，而是给给提示正在排队中！）----
+            if _is_manual_request(user_content):    
+                # 用户输入了非取消内容（如新问题），自动取消排队并处理
+                await _handle_repeat_manual(websocket, state, session_id)
+                return True
+
         # 用户输入了非取消内容（如新问题），自动取消排队并处理
         logger.info(f"[{session_id}] 排队状态下收到非取消输入，自动取消排队: {user_content[:30]}")
         await _handle_cancel_manual(websocket, state, session_id)
@@ -711,9 +744,10 @@ async def _send_response(websocket, state: Dict[str, Any]) -> None:
     # 检查是否有 interactive 指令
     interactive = state.get("interactive")
     if interactive:
+        logger.info(f"_send_response 发送 选项卡片>interactive 指令: {interactive}")
         await websocket.send_json(interactive)
         return
-
+    
     # 提取最后一条助手回复
     last_reply = ""
     for m in reversed(state.get("messages", [])):
@@ -723,8 +757,10 @@ async def _send_response(websocket, state: Dict[str, Any]) -> None:
 
     if last_reply:
         status = state.get("status")
-        # 人工排队状态使用特殊消息类型，让前端显示取消按钮
+        # 人工排队状态使用特殊消息类型，让前端显示取消按钮,---若状态为人工排队，则type改为 manual_queue
         msg_type = "manual_queue" if status == "manual_queue" else "reply"
+        logger.info(f"_send_response 发送 普通文本回复>reply 指令: {last_reply}")
+
         await websocket.send_json({
             "type": msg_type,
             "content": last_reply,
@@ -735,6 +771,7 @@ async def _send_response(websocket, state: Dict[str, Any]) -> None:
 
     # 如果进入结束状态，给前端提示
     if state.get("status") in ("awaiting_satisfaction", "awaiting_choice"):
+        logger.info(f"_send_response 发送 状态变更>status_change 指令: {state.get('status')}")
         await websocket.send_json({
             "type": "status_change",
             "status": state.get("status"),

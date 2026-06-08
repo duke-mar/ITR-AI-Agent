@@ -156,7 +156,7 @@ class GraphBuilder:
         """
         intent = state.get("intent")
         status = state.get("status")
-
+    
         # 人工排队中：不再生成新方案或追问，等待客服接入
         if status in ("transferred", "manual_queue"):
             logger.info(f"路由: 状态={status} -> END (排队中)")
@@ -170,21 +170,13 @@ class GraphBuilder:
         # 兜底：如果 LLM 判为 manual，但用户最近一次输入明显不是转人工
         # （如刚取消人工后输入了业务问题），避免受历史消息影响重复触发转人工
         if intent == "manual":
-            messages = state.get("messages", [])
-            last_user = ""
-            for m in reversed(messages):
-                if m.get("role") == "user":
-                    last_user = m.get("content", "")
-                    break
-            # 只有用户最近一次输入明确包含转人工关键词，才真的转人工
-            manual_keywords = ["人工", "客服", "转人工", "人工客服", "找人工", "接人工", "投诉"]
-            is_real_manual = any(kw in last_user for kw in manual_keywords)
-            if not is_real_manual:
+            decrease_level_intent = state.get("decrease_level_intent")
+            if decrease_level_intent == "solution_generation":
                 logger.info(f"路由: manual 但用户最近输入'{last_user}'不含转人工关键词，忽略 -> solution_generation")
                 return "solution_generation"
             logger.info("路由: manual -> session_end")
             return "session_end"
-
+            
         # 如果有 interactive 指令（追问），本轮结束，等待用户回复
         if state.get("interactive"):
             logger.info("路由: 有追问指令 -> END")
